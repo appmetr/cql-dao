@@ -13,7 +13,9 @@ You can use it as a maven dependency:
     <artifactId>cql-dao</artifactId>
     <version>1.0</version>
 </dependency>
+```
 
+```xml
 <repositories>
     <repository>
         <id>appmetr-repo</id>
