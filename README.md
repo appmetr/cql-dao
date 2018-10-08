@@ -13,6 +13,13 @@ You can use it as a maven dependency:
     <artifactId>cql-dao</artifactId>
     <version>1.0</version>
 </dependency>
+
+<repositories>
+    <repository>
+        <id>appmetr-repo</id>
+        <url>http://dl.bintray.com/appmetr/maven</url>
+    </repository>
+</repositories>
 ```
 
 Or download the latest build at:
