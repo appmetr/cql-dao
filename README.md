@@ -1,5 +1,3 @@
-[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.appmetr/cql-dao/badge.png)](https://maven-badges.herokuapp.com/maven-central/com.appmetr/cql-dao)
-
 CQL DAO
 =============
 
