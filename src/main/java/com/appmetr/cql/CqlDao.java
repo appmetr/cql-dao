@@ -181,6 +181,10 @@ public class CqlDao<T> {
         return QueryBuilder.select().from(tableMeta());
     }
 
+    public Select select(Object... columns) {
+        return QueryBuilder.select(columns).from(tableMeta());
+    }
+
     @Nullable
     public T getSingleBy(Object... primaryKey) {
         return mapper.get(primaryKey);
