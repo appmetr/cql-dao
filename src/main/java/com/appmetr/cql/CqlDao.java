@@ -141,7 +141,7 @@ public class CqlDao<T> {
                         @Override public void onFailure(Throwable t) {
                             cf.completeExceptionally(t);
                         }
-                    }, callbackExecutor());
+                    }, executor);
                 }
             } catch (Throwable throwable) {
                 cf.completeExceptionally(throwable);
