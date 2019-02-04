@@ -56,7 +56,7 @@
         <dependency>
             <groupId>org.jmmo</groupId>
             <artifactId>stream-util</artifactId>
-            <version>1.11</version>
+            <version>1.12</version>
         </dependency>
         
         <dependency>
