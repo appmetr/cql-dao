@@ -1,5 +1,6 @@
 package com.appmetr.cql;
 
+import com.appmetr.cql.util.BiObjLongConsumer;
 import com.appmetr.cql.util.CallbackExecutorFactory;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.querybuilder.Delete;
@@ -18,10 +19,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.function.Consumer;
-import java.util.function.ObjLongConsumer;
-import java.util.function.Predicate;
-import java.util.function.Supplier;
+import java.util.function.*;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -89,22 +87,33 @@ public class CqlDao<T> {
         return resultAsync(statement).thenCompose(result -> listAsync(result, executor));
     }
 
-    public <E> CompletableFuture<List<E>> listAsync(Result<E> result) {
+    public CompletableFuture<List<T>> listAsync(Result<T> result) {
         return listAsync(result, callbackExecutor());
     }
 
-    public <E> CompletableFuture<List<E>> listAsync(Result<E> result, Executor executor) {
+    public static <E> CompletableFuture<List<E>> listAsync(Result<E> result, Executor executor) {
         final List<E> list = new ArrayList<>();
         return processAsync(result, objLongConsumer(list::add), executor).thenApply(aVoid -> list);
     }
 
-    public <E> CompletableFuture<Long> processAsync(Result<E> result, ObjLongConsumer<E> eConsumer) {
+    public <B> CompletableFuture<Long> batchAsync(Result<T> result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
+        return batchAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
+    }
+
+    public static <E, B> CompletableFuture<Long> batchAsync(
+            Result<E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
+        final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
+        processAsyncInner(result, executor, 0L, completableFuture, bSupplier, eConsumer, bConsumer);
+        return completableFuture;
+    }
+
+    public CompletableFuture<Long> processAsync(Result<T> result, ObjLongConsumer<T> eConsumer) {
         return processAsync(result, eConsumer, callbackExecutor());
     }
 
-    public <E> CompletableFuture<Long> processAsync(Result<E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
+    public static <E> CompletableFuture<Long> processAsync(Result<E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
-        processAsyncInner(result, executor, 0L, completableFuture, eConsumer);
+        processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(eConsumer), aVoid -> {});
         return completableFuture;
     }
 
@@ -112,20 +121,25 @@ public class CqlDao<T> {
         return processRowAsync(result, rConsumer, callbackExecutor());
     }
 
-    public CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer, Executor executor) {
+    public static CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
-        processAsyncInner(result, executor, 0L, completableFuture, rConsumer);
+        processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(rConsumer), aVoid -> {});
         return completableFuture;
     }
 
-    protected <S extends PagingIterable<S, E>, E> void processAsyncInner(PagingIterable<S, E> result, Executor executor, long previousCount,
-                                                                         CompletableFuture<Long> cf, ObjLongConsumer<E> eConsumer) {
+    protected static <S extends PagingIterable<S, E>, E, B> void processAsyncInner(
+            PagingIterable<S, E> result, Executor executor, long previousCount, CompletableFuture<Long> cf,
+            Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer) {
         executor.execute(() -> {
             try {
                 final long[] count = new long[] {previousCount};
                 try {
-                    Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
-                            .forEach(element -> eConsumer.accept(element, ++count[0]));
+                    if (result.getAvailableWithoutFetching() > 0) {
+                        final B batch = batchSupplier.get();
+                        Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
+                                .forEach(element -> eConsumer.accept(element, batch, ++count[0]));
+                        batchConsumer.accept(batch);
+                    }
                 } catch (BreakException e) {
                     cf.complete(count[0]);
                     return;
@@ -136,7 +150,7 @@ public class CqlDao<T> {
                 } else {
                     Futures.addCallback(result.fetchMoreResults(), new FutureCallback<PagingIterable<S, E>>() {
                         @Override public void onSuccess(PagingIterable<S, E> result) {
-                            processAsyncInner(result, executor, count[0], cf, eConsumer);
+                            processAsyncInner(result, executor, count[0], cf, batchSupplier, eConsumer, batchConsumer);
                         }
                         @Override public void onFailure(Throwable t) {
                             cf.completeExceptionally(t);
@@ -438,6 +452,10 @@ public class CqlDao<T> {
 
     public static <T> ObjLongConsumer<T> objLongConsumer(Consumer<T> tConsumer) {
         return (t, value) -> tConsumer.accept(t);
+    }
+
+    public static <T> BiObjLongConsumer<T, Void> biObjLongConsumer(ObjLongConsumer<T> objLongConsumer) {
+        return (row, o, i) -> objLongConsumer.accept(row, i);
     }
 
     protected void prePersist(T t) {}
