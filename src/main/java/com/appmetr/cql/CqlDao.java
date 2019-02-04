@@ -455,7 +455,11 @@ public class CqlDao<T> {
     }
 
     public static <T> BiObjLongConsumer<T, Void> biObjLongConsumer(ObjLongConsumer<T> objLongConsumer) {
-        return (row, o, i) -> objLongConsumer.accept(row, i);
+        return (t, o, i) -> objLongConsumer.accept(t, i);
+    }
+
+    public static <T> BiObjLongConsumer<T, Void> biObjLongConsumer(Consumer<T> tConsumer) {
+        return (t, o, i) -> tConsumer.accept(t);
     }
 
     protected void prePersist(T t) {}
