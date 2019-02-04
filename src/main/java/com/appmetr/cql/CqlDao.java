@@ -96,12 +96,26 @@ public class CqlDao<T> {
         return processAsync(result, objLongConsumer(list::add), executor).thenApply(aVoid -> list);
     }
 
-    public <B> CompletableFuture<Long> batchAsync(Result<T> result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
-        return batchAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
+    public <B> CompletableFuture<Long> batchingAsync(Result<T> result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
+        return batchingAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
     }
 
-    public static <E, B> CompletableFuture<Long> batchAsync(
+    public static <E, B> CompletableFuture<Long> batchingAsync(
             Result<E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
+        return batchingAsyncInner(result, bSupplier, eConsumer, bConsumer, executor);
+    }
+
+    public <B> CompletableFuture<Long> batchingRowAsync(ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer) {
+        return batchingRowAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
+    }
+
+    public static <E, B> CompletableFuture<Long> batchingRowAsync(
+            ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
+        return batchingAsyncInner(result, bSupplier, eConsumer, bConsumer, executor);
+    }
+
+    protected static <S extends PagingIterable<S, E>, E, B> CompletableFuture<Long> batchingAsyncInner(
+            PagingIterable<S, E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
         processAsyncInner(result, executor, 0L, completableFuture, bSupplier, eConsumer, bConsumer);
         return completableFuture;
@@ -112,9 +126,7 @@ public class CqlDao<T> {
     }
 
     public static <E> CompletableFuture<Long> processAsync(Result<E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
-        final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
-        processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(eConsumer), aVoid -> {});
-        return completableFuture;
+        return processAsyncInner(result, eConsumer, executor);
     }
 
     public CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer) {
@@ -122,8 +134,13 @@ public class CqlDao<T> {
     }
 
     public static CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer, Executor executor) {
+        return processAsyncInner(result, rConsumer, executor);
+    }
+
+    protected static <S extends PagingIterable<S, E>, E>  CompletableFuture<Long> processAsyncInner(
+            PagingIterable<S, E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
-        processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(rConsumer), aVoid -> {});
+        processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(eConsumer), aVoid -> {});
         return completableFuture;
     }
 
@@ -135,10 +152,7 @@ public class CqlDao<T> {
                 final long[] count = new long[] {previousCount};
                 try {
                     if (result.getAvailableWithoutFetching() > 0) {
-                        final B batch = batchSupplier.get();
-                        Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
-                                .forEach(element -> eConsumer.accept(element, batch, ++count[0]));
-                        batchConsumer.accept(batch);
+                        processBatch(result, batchSupplier, eConsumer, batchConsumer, count);
                     }
                 } catch (BreakException e) {
                     cf.complete(count[0]);
@@ -273,27 +287,43 @@ public class CqlDao<T> {
         return process(result(select().setFetchSize(batchSize)), tConsumer);
     }
 
-    public <E> long process(Result<E> result, ObjLongConsumer<E> eConsumer) {
-        return processInner(result, eConsumer);
+    public static <E> long process(Result<E> result, ObjLongConsumer<E> eConsumer) {
+        return processInner(result, () -> null, biObjLongConsumer(eConsumer), b -> {});
     }
 
-    public long processRow(ResultSet result, ObjLongConsumer<Row> eConsumer) {
-        return processInner(result, eConsumer);
+    public static long processRow(ResultSet result, ObjLongConsumer<Row> eConsumer) {
+        return processInner(result, () -> null, biObjLongConsumer(eConsumer), b -> {});
     }
 
-    protected <S extends PagingIterable<S, E>, E> long processInner(PagingIterable<S, E> result, ObjLongConsumer<E> eConsumer) {
+    public static <E, B> long batching(Result<E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer) {
+        return processInner(result, bSupplier, eConsumer, bConsumer);
+    }
+
+    public static <B> long batchingRow(ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer) {
+        return processInner(result, bSupplier, eConsumer, bConsumer);
+    }
+
+    protected static <S extends PagingIterable<S, E>, E, B> long processInner(
+            PagingIterable<S, E> result, Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer) {
+
         final long[] count = new long[1];
 
         while (!result.isExhausted()) {
             try {
-                Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
-                        .forEach(element -> eConsumer.accept(element, ++count[0]));
+                processBatch(result, batchSupplier, eConsumer, batchConsumer, count);
             } catch (BreakException e) {
                 break;
             }
         }
 
         return count[0];
+    }
+
+    protected static <S extends PagingIterable<S, E>, E, B> void processBatch(PagingIterable<S, E> result, Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer, long[] count) {
+        final B batch = batchSupplier.get();
+        Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
+                .forEach(element -> eConsumer.accept(element, batch, ++count[0]));
+        batchConsumer.accept(batch);
     }
 
     public void save(T t) {
