@@ -47,7 +47,7 @@ public class CqlDao<T> {
         this.mappingManager = mappingManager;
         this.entityClass = entityClass;
         this.mapper = mappingManager.mapper(entityClass);
-        this.entityMapperExposer = EntityMapperExposer.fromMapper(mapper);
+        this.entityMapperExposer = EntityMapperExposer.fromMappingManager(mappingManager, entityClass);
         this.callbackExecutor = callbackExecutor;
     }
 

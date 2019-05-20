@@ -1,27 +1,19 @@
 package com.datastax.driver.mapping;
 
 import com.datastax.driver.core.ConsistencyLevel;
-import org.jmmo.util.StreamUtil;
 
-import java.lang.reflect.Field;
 import java.util.stream.Stream;
+
+import static com.datastax.driver.mapping.AnnotationParser.parseEntity;
 
 public class EntityMapperExposer<T> {
     private final EntityMapper<T> entityMapper;
 
     public EntityMapperExposer(EntityMapper<T> entityMapper) {this.entityMapper = entityMapper;}
 
-    @SuppressWarnings("unchecked")
-    public static <E> EntityMapperExposer<E> fromMapper(Mapper<E> mapper) {
-        try {
-            final Field field = mapper.getClass().getDeclaredField("mapper");
-            if (!field.isAccessible()) {
-                field.setAccessible(true);
-            }
-            return new EntityMapperExposer<>((EntityMapper<E>) field.get(mapper));
-        } catch (IllegalAccessException | NoSuchFieldException  e) {
-            return StreamUtil.sneakyThrow(e);
-        }
+    public static <E> EntityMapperExposer<E> fromMappingManager(MappingManager mappingManager, Class<E> entityClass) {
+        EntityMapper<E> entityMapper = parseEntity(entityClass, null, mappingManager);
+        return new EntityMapperExposer<>(entityMapper);
     }
 
     public String getKeyspace() {
