@@ -468,7 +468,7 @@ public class CqlDao<T> {
     }
 
     public Flux<Row> scanRow(int ranges) {
-        return scanRow(ranges, select(), ForkJoinPool.commonPool());
+        return scanRow(ranges, select());
     }
 
     public Flux<Row> scanRow(int ranges, Select select) {
