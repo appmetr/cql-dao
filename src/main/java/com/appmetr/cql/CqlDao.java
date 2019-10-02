@@ -1,7 +1,6 @@
 package com.appmetr.cql;
 
-import com.appmetr.cql.util.BiObjLongConsumer;
-import com.appmetr.cql.util.CallbackExecutorFactory;
+import com.appmetr.cql.util.*;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.querybuilder.Delete;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
@@ -11,6 +10,9 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.jmmo.util.BreakException;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.ParallelFlux;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.*;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -59,12 +62,28 @@ public class CqlDao<T> {
         return completableFuture(session().executeAsync(statement));
     }
 
+    public Flux<Row> executeFlux(Statement statement) {
+        return executeFlux(statement, callbackExecutor());
+    }
+
+    public Flux<Row> executeFlux(Statement statement, Executor executor) {
+        return Mono.fromFuture(executeAsync(statement)).flux().flatMap(result -> resultToFlux(result, executor));
+    }
+
     public Result<T> result(Statement statement) {
         return mapper.map(execute(statement));
     }
 
     public CompletableFuture<Result<T>> resultAsync(Statement statement) {
         return executeAsync(statement).thenApply(resultSet -> mapper().map(resultSet));
+    }
+
+    public Flux<T> resultFlux(Statement statement) {
+        return resultFlux(statement, callbackExecutor());
+    }
+
+    public Flux<T> resultFlux(Statement statement, Executor executor) {
+        return Mono.fromFuture(resultAsync(statement)).flux().flatMap(result -> resultToFlux(result, executor));
     }
 
     public Stream<T> stream(Statement statement) {
@@ -91,61 +110,86 @@ public class CqlDao<T> {
         return listAsync(result, callbackExecutor());
     }
 
-    public static <E> CompletableFuture<List<E>> listAsync(Result<E> result, Executor executor) {
-        final List<E> list = new ArrayList<>();
+    public static <T> CompletableFuture<List<T>> listAsync(Result<T> result, Executor executor) {
+        final List<T> list = new ArrayList<>();
         return processAsync(result, objLongConsumer(list::add), executor).thenApply(aVoid -> list);
     }
 
-    public <B> CompletableFuture<Long> batchingAsync(Result<T> result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
+    public long processAll(ObjLongConsumer<T> tConsumer) {
+        return processAll(DEFAULT_BATCH_SIZE, tConsumer);
+    }
+
+    public long processAll(int batchSize, ObjLongConsumer<T> tConsumer) {
+        return process(result(select().setFetchSize(batchSize)), tConsumer);
+    }
+
+    public static <R extends PagingIterable<R, T>, T> long process(R result, ObjLongConsumer<T> eConsumer) {
+        return processInner(result, () -> null, biObjLongConsumer(eConsumer), b -> {});
+    }
+
+    public <R extends PagingIterable<R, T>> CompletableFuture<Long> processAsync(R result, ObjLongConsumer<T> eConsumer) {
+        return processAsync(result, eConsumer, callbackExecutor());
+    }
+
+    public static <R extends PagingIterable<R, T>, T> CompletableFuture<Long> processAsync(R result, ObjLongConsumer<T> eConsumer, Executor executor) {
+        return processAsyncInner(result, eConsumer, executor);
+    }
+
+    public static <R extends PagingIterable<R, T>, T, B> long batching(R result, Supplier<B> bSupplier,
+                                                                       BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
+        return processInner(result, bSupplier, eConsumer, bConsumer);
+    }
+
+    public <R extends PagingIterable<R, T>, B> CompletableFuture<Long> batchingAsync(R result, Supplier<B> bSupplier,
+                                                                                     BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer) {
         return batchingAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
     }
 
-    public static <E, B> CompletableFuture<Long> batchingAsync(
-            Result<E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
+    public static <R extends PagingIterable<R, T>, T, B> CompletableFuture<Long> batchingAsync(
+            R result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
         return batchingAsyncInner(result, bSupplier, eConsumer, bConsumer, executor);
     }
 
-    public <B> CompletableFuture<Long> batchingRowAsync(ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer) {
-        return batchingRowAsync(result, bSupplier, eConsumer, bConsumer, callbackExecutor());
-    }
-
-    public static <E, B> CompletableFuture<Long> batchingRowAsync(
-            ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
-        return batchingAsyncInner(result, bSupplier, eConsumer, bConsumer, executor);
-    }
-
-    protected static <S extends PagingIterable<S, E>, E, B> CompletableFuture<Long> batchingAsyncInner(
-            PagingIterable<S, E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
+    protected static <R extends PagingIterable<R, T>, T, B> CompletableFuture<Long> batchingAsyncInner(
+            R result, Supplier<B> bSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> bConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
         processAsyncInner(result, executor, 0L, completableFuture, bSupplier, eConsumer, bConsumer);
         return completableFuture;
     }
 
-    public CompletableFuture<Long> processAsync(Result<T> result, ObjLongConsumer<T> eConsumer) {
-        return processAsync(result, eConsumer, callbackExecutor());
+    protected static <R extends PagingIterable<R, T>, T, B> long processInner(
+            R result, Supplier<B> batchSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> batchConsumer) {
+
+        final long[] count = new long[1];
+
+        while (!result.isExhausted()) {
+            try {
+                processBatch(result, batchSupplier, eConsumer, batchConsumer, count);
+            } catch (BreakException e) {
+                break;
+            }
+        }
+
+        return count[0];
     }
 
-    public static <E> CompletableFuture<Long> processAsync(Result<E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
-        return processAsyncInner(result, eConsumer, executor);
+    protected static <R extends PagingIterable<R, T>, T, B> void processBatch(
+            R result, Supplier<B> batchSupplier, BiObjLongConsumer<T, B> eConsumer, Consumer<B> batchConsumer, long[] count) {
+        final B batch = batchSupplier.get();
+        Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
+                .forEach(element -> eConsumer.accept(element, batch, ++count[0]));
+        batchConsumer.accept(batch);
     }
 
-    public CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer) {
-        return processRowAsync(result, rConsumer, callbackExecutor());
-    }
-
-    public static CompletableFuture<Long> processRowAsync(ResultSet result, ObjLongConsumer<Row> rConsumer, Executor executor) {
-        return processAsyncInner(result, rConsumer, executor);
-    }
-
-    protected static <S extends PagingIterable<S, E>, E>  CompletableFuture<Long> processAsyncInner(
-            PagingIterable<S, E> result, ObjLongConsumer<E> eConsumer, Executor executor) {
+    protected static <R extends PagingIterable<R, T>, T>  CompletableFuture<Long> processAsyncInner(
+            R result, ObjLongConsumer<T> eConsumer, Executor executor) {
         final CompletableFuture<Long> completableFuture = new CompletableFuture<>();
         processAsyncInner(result, executor, 0L, completableFuture, () -> null, biObjLongConsumer(eConsumer), aVoid -> {});
         return completableFuture;
     }
 
-    protected static <S extends PagingIterable<S, E>, E, B> void processAsyncInner(
-            PagingIterable<S, E> result, Executor executor, long previousCount, CompletableFuture<Long> cf,
+    protected static <R extends PagingIterable<R, E>, E, B> void processAsyncInner(
+            R result, Executor executor, long previousCount, CompletableFuture<Long> cf,
             Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer) {
         executor.execute(() -> {
             try {
@@ -162,8 +206,8 @@ public class CqlDao<T> {
                 if (result.getExecutionInfo().getPagingState() == null) {
                     cf.complete(count[0]);
                 } else {
-                    Futures.addCallback(result.fetchMoreResults(), new FutureCallback<PagingIterable<S, E>>() {
-                        @Override public void onSuccess(PagingIterable<S, E> result) {
+                    Futures.addCallback(result.fetchMoreResults(), new FutureCallback<R>() {
+                        @Override public void onSuccess(R result) {
                             processAsyncInner(result, executor, count[0], cf, batchSupplier, eConsumer, batchConsumer);
                         }
                         @Override public void onFailure(Throwable t) {
@@ -279,53 +323,6 @@ public class CqlDao<T> {
         return resultAsync(getQueryBy(keys)).thenApply(Result::one);
     }
 
-    public long processAll(ObjLongConsumer<T> tConsumer) {
-        return processAll(DEFAULT_BATCH_SIZE, tConsumer);
-    }
-
-    public long processAll(int batchSize, ObjLongConsumer<T> tConsumer) {
-        return process(result(select().setFetchSize(batchSize)), tConsumer);
-    }
-
-    public static <E> long process(Result<E> result, ObjLongConsumer<E> eConsumer) {
-        return processInner(result, () -> null, biObjLongConsumer(eConsumer), b -> {});
-    }
-
-    public static long processRow(ResultSet result, ObjLongConsumer<Row> eConsumer) {
-        return processInner(result, () -> null, biObjLongConsumer(eConsumer), b -> {});
-    }
-
-    public static <E, B> long batching(Result<E> result, Supplier<B> bSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> bConsumer) {
-        return processInner(result, bSupplier, eConsumer, bConsumer);
-    }
-
-    public static <B> long batchingRow(ResultSet result, Supplier<B> bSupplier, BiObjLongConsumer<Row, B> eConsumer, Consumer<B> bConsumer) {
-        return processInner(result, bSupplier, eConsumer, bConsumer);
-    }
-
-    protected static <S extends PagingIterable<S, E>, E, B> long processInner(
-            PagingIterable<S, E> result, Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer) {
-
-        final long[] count = new long[1];
-
-        while (!result.isExhausted()) {
-            try {
-                processBatch(result, batchSupplier, eConsumer, batchConsumer, count);
-            } catch (BreakException e) {
-                break;
-            }
-        }
-
-        return count[0];
-    }
-
-    protected static <S extends PagingIterable<S, E>, E, B> void processBatch(PagingIterable<S, E> result, Supplier<B> batchSupplier, BiObjLongConsumer<E, B> eConsumer, Consumer<B> batchConsumer, long[] count) {
-        final B batch = batchSupplier.get();
-        Stream.generate(result::one).limit(result.getAvailableWithoutFetching())
-                .forEach(element -> eConsumer.accept(element, batch, ++count[0]));
-        batchConsumer.accept(batch);
-    }
-
     public void save(T t) {
         prePersist(t);
         mapper().save(t);
@@ -439,12 +436,49 @@ public class CqlDao<T> {
         return where;
     }
 
-    public static <T> Stream<T> resultToStream(Result<T> result) {
+    public static <R extends PagingIterable<R, T>, T> Stream<T> resultToStream(R result) {
         return StreamSupport.stream(result.spliterator(), false);
     }
 
-    public static Stream<Row> resultSetToStream(ResultSet resultSet) {
-        return StreamSupport.stream(resultSet.spliterator(), false);
+
+    public static <R extends PagingIterable<R, T>, T> Flux<T> resultToFlux(R result) {
+        return resultToFlux(result, ForkJoinPool.commonPool());
+    }
+
+    public static <R extends PagingIterable<R, T>, T> Flux<T> resultToFlux(R result, Executor executor) {
+        return Flux.create(sink -> {
+            final ResultFluxSkeleton<R, T> fluxSkeleton = new ResultFluxSkeleton<>(result, sink::next, sink::complete, sink::error, executor);
+            sink.onRequest(fluxSkeleton::request);
+            sink.onCancel(fluxSkeleton::dispose);
+            sink.onDispose(fluxSkeleton::dispose);
+        });
+    }
+
+    public ParallelFlux<T> scan(int threads) {
+        return scan(threads, ForkJoinPool.commonPool());
+    }
+
+    public ParallelFlux<T> scan(int threads, Executor executor) {
+        return scan(threads, select()).flatMap(query -> resultFlux(query, executor));
+    }
+
+    public ParallelFlux<Select.Where> scan(int threads, Select select) {
+        return scan(threads, select, Function.identity());
+    }
+
+    public <S extends Statement> ParallelFlux<S> scan(int threads, Select select, Function<Select.Where, S> queryMapping) {
+        final long[] tokens = MurMur64Tokens.tokens(threads);
+        return Flux.range(0, threads)
+                .parallel(threads)
+                .map(i -> queryMapping.apply(MurMur64Tokens.whereTokenRange(this, tokens, i, select)));
+    }
+
+    public ParallelFlux<Row> scanRow(int threads, Select select) {
+        return scanRow(threads, select, ForkJoinPool.commonPool());
+    }
+
+    public ParallelFlux<Row> scanRow(int threads, Select select, Executor executor) {
+        return scan(threads, select()).flatMap(query -> executeFlux(query, executor));
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
@@ -453,31 +487,6 @@ public class CqlDao<T> {
 
     public static <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture, Executor executor) {
         return new CompletableListenable<>(listenableFuture, executor);
-    }
-    public static class CompletableListenable<T> extends CompletableFuture<T> implements FutureCallback<T> {
-
-        private final ListenableFuture<T> listenableFuture;
-
-        public CompletableListenable(ListenableFuture<T> listenableFuture, Executor executor) {
-            this.listenableFuture = listenableFuture;
-
-            Futures.addCallback(listenableFuture, this, executor);
-        }
-
-        @Override
-        public boolean cancel(boolean mayInterruptIfRunning) {
-            boolean result = listenableFuture.cancel(mayInterruptIfRunning);
-            super.cancel(mayInterruptIfRunning);
-            return result;
-        }
-
-        @Override public void onSuccess(T result) {
-            complete(result);
-        }
-        @Override public void onFailure(Throwable t) {
-            completeExceptionally(t);
-        }
-
     }
 
     public static <T> ObjLongConsumer<T> objLongConsumer(Consumer<T> tConsumer) {
