@@ -478,7 +478,7 @@ public class CqlDao<T> {
     }
 
     public ParallelFlux<Row> scanRow(int threads, Select select, Executor executor) {
-        return scan(threads, select()).flatMap(query -> executeFlux(query, executor));
+        return scan(threads, select).flatMap(query -> executeFlux(query, executor));
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
