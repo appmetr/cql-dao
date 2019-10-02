@@ -453,18 +453,18 @@ public class CqlDao<T> {
         });
     }
 
+    public Flux<Select.Where> scanQuery(int ranges, Select select) {
+        final long[] tokens = MurMur64Tokens.tokens(ranges);
+        return Flux.range(0, ranges)
+                .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, select));
+    }
+
     public Flux<T> scan(int ranges) {
         return scan(ranges, ForkJoinPool.commonPool());
     }
 
     public Flux<T> scan(int ranges, Executor executor) {
-        return scan(ranges, select()).flatMap(query -> resultFlux(query, executor));
-    }
-
-    public Flux<Select.Where> scan(int ranges, Select select) {
-        final long[] tokens = MurMur64Tokens.tokens(ranges);
-        return Flux.range(0, ranges)
-                .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, select));
+        return scanQuery(ranges, select()).flatMap(query -> resultFlux(query, executor));
     }
 
     public Flux<Row> scanRow(int ranges) {
@@ -476,7 +476,7 @@ public class CqlDao<T> {
     }
 
     public Flux<Row> scanRow(int ranges, Select select, Executor executor) {
-        return scan(ranges, select).flatMap(query -> executeFlux(query, executor));
+        return scanQuery(ranges, select).flatMap(query -> executeFlux(query, executor));
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
