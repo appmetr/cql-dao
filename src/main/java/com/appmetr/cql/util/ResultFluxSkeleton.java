@@ -5,7 +5,6 @@ import com.datastax.driver.core.PagingIterable;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -19,10 +18,6 @@ public class ResultFluxSkeleton<R extends PagingIterable<R, T>, T> {
     private R result;
     private boolean reading;
     private volatile boolean disposed;
-
-    public ResultFluxSkeleton(R result, Consumer<T> onNext, Runnable onCompleted, Consumer<Throwable> onError) {
-        this(result, onNext, onCompleted, onError, ForkJoinPool.commonPool());
-    }
 
     public ResultFluxSkeleton(R result, Consumer<T> onNext, Runnable onCompleted, Consumer<Throwable> onError, Executor executor) {
         this.result = result;
