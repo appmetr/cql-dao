@@ -12,7 +12,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.jmmo.util.BreakException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.ParallelFlux;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -454,30 +453,29 @@ public class CqlDao<T> {
         });
     }
 
-    public ParallelFlux<T> scan(int threads) {
-        return scan(threads, ForkJoinPool.commonPool());
+    public Flux<T> scan(int ranges) {
+        return scan(ranges, ForkJoinPool.commonPool());
     }
 
-    public ParallelFlux<T> scan(int threads, Executor executor) {
-        return scan(threads, select()).flatMap(query -> resultFlux(query, executor));
+    public Flux<T> scan(int ranges, Executor executor) {
+        return scan(ranges, select()).flatMap(query -> resultFlux(query, executor));
     }
 
-    public ParallelFlux<Select.Where> scan(int threads, Select select) {
-        return scan(threads, select, Function.identity());
+    public Flux<Select.Where> scan(int ranges, Select select) {
+        final long[] tokens = MurMur64Tokens.tokens(ranges);
+        return Flux.range(0, ranges)
+                .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, select));
     }
 
-    public <S extends Statement> ParallelFlux<S> scan(int threads, Select select, Function<Select.Where, S> queryMapping) {
-        final long[] tokens = MurMur64Tokens.tokens(threads);
-        return Flux.range(0, threads)
-                .parallel(threads)
-                .map(i -> queryMapping.apply(MurMur64Tokens.whereTokenRange(this, tokens, i, select)));
+    public Flux<Row> scanRow(int threads) {
+        return scanRow(threads, select(), ForkJoinPool.commonPool());
     }
 
-    public ParallelFlux<Row> scanRow(int threads, Select select) {
+    public Flux<Row> scanRow(int threads, Select select) {
         return scanRow(threads, select, ForkJoinPool.commonPool());
     }
 
-    public ParallelFlux<Row> scanRow(int threads, Select select, Executor executor) {
+    public Flux<Row> scanRow(int threads, Select select, Executor executor) {
         return scan(threads, select).flatMap(query -> executeFlux(query, executor));
     }
 
