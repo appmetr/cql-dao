@@ -43,7 +43,7 @@ public class PagingIterableEmitter<R extends PagingIterable<R, T>, T> {
                 });
     }
 
-    private CompletableFuture<Void> readAvailable(PagingIterable<R, T> result, CompletableFuture<Void> cf) {
+    private CompletableFuture<Void> readAvailable(R result, CompletableFuture<Void> cf) {
         try {
             do {
                 while (requested.get() > 0 && result.getAvailableWithoutFetching() > 0) {
