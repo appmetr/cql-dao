@@ -467,16 +467,16 @@ public class CqlDao<T> {
                 .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, select));
     }
 
-    public Flux<Row> scanRow(int threads) {
-        return scanRow(threads, select(), ForkJoinPool.commonPool());
+    public Flux<Row> scanRow(int ranges) {
+        return scanRow(ranges, select(), ForkJoinPool.commonPool());
     }
 
-    public Flux<Row> scanRow(int threads, Select select) {
-        return scanRow(threads, select, ForkJoinPool.commonPool());
+    public Flux<Row> scanRow(int ranges, Select select) {
+        return scanRow(ranges, select, ForkJoinPool.commonPool());
     }
 
-    public Flux<Row> scanRow(int threads, Select select, Executor executor) {
-        return scan(threads, select).flatMap(query -> executeFlux(query, executor));
+    public Flux<Row> scanRow(int ranges, Select select, Executor executor) {
+        return scan(ranges, select).flatMap(query -> executeFlux(query, executor));
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
