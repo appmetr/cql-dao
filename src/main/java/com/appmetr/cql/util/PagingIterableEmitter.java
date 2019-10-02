@@ -8,19 +8,19 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
-public class ResultFluxSkeleton<R extends PagingIterable<R, T>, T> {
+public class PagingIterableEmitter<R extends PagingIterable<R, T>, T> {
     private final Consumer<T> onNext;
     private final Runnable onCompleted;
     private final Consumer<Throwable> onError;
     private final AtomicLong requested = new AtomicLong();
     private final Executor executor;
 
-    private R result;
+    private R pagingIterable;
     private boolean reading;
     private volatile boolean disposed;
 
-    public ResultFluxSkeleton(R result, Consumer<T> onNext, Runnable onCompleted, Consumer<Throwable> onError, Executor executor) {
-        this.result = result;
+    public PagingIterableEmitter(R pagingIterable, Consumer<T> onNext, Runnable onCompleted, Consumer<Throwable> onError, Executor executor) {
+        this.pagingIterable = pagingIterable;
         this.onNext = onNext;
         this.onCompleted = onCompleted;
         this.onError = onError;
@@ -35,7 +35,7 @@ public class ResultFluxSkeleton<R extends PagingIterable<R, T>, T> {
             reading = true;
         }
 
-        CompletableFuture.runAsync(() -> readAvailable(result, new CompletableFuture<>()), executor)
+        CompletableFuture.runAsync(() -> readAvailable(pagingIterable, new CompletableFuture<>()), executor)
                 .whenComplete((aVoid, throwable) -> {
                     if (throwable != null) {
                         onError.accept(throwable);

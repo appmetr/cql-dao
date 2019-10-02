@@ -446,7 +446,7 @@ public class CqlDao<T> {
 
     public static <R extends PagingIterable<R, T>, T> Flux<T> resultToFlux(R result, Executor executor) {
         return Flux.create(sink -> {
-            final ResultFluxSkeleton<R, T> fluxSkeleton = new ResultFluxSkeleton<>(result, sink::next, sink::complete, sink::error, executor);
+            final PagingIterableEmitter<R, T> fluxSkeleton = new PagingIterableEmitter<>(result, sink::next, sink::complete, sink::error, executor);
             sink.onRequest(fluxSkeleton::request);
             sink.onCancel(fluxSkeleton::dispose);
             sink.onDispose(fluxSkeleton::dispose);
