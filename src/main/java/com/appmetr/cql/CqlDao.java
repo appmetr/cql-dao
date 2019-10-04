@@ -101,6 +101,10 @@ public class CqlDao<T> {
         return resultAsync(statement).thenApply(CqlDao::resultToStream);
     }
 
+    public CompletableFuture<Stream<T>> streamAsync(Statement statement, Executor executor) {
+        return resultAsync(statement, executor).thenApply(CqlDao::resultToStream);
+    }
+
     public List<T> list(Statement statement) {
         return result(statement).all();
     }
