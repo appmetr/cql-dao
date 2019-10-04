@@ -81,10 +81,6 @@ public class CqlDao<T> {
         return executeAsync(statement).thenApply(resultSet -> mapper().map(resultSet));
     }
 
-    public CompletableFuture<Result<T>> resultAsync(Statement statement, Executor executor) {
-        return executeAsync(statement, executor).thenApply(resultSet -> mapper().map(resultSet));
-    }
-
     public Flux<T> resultFlux(Statement statement) {
         return resultFlux(statement, callbackExecutor());
     }
@@ -99,10 +95,6 @@ public class CqlDao<T> {
 
     public CompletableFuture<Stream<T>> streamAsync(Statement statement) {
         return resultAsync(statement).thenApply(CqlDao::resultToStream);
-    }
-
-    public CompletableFuture<Stream<T>> streamAsync(Statement statement, Executor executor) {
-        return resultAsync(statement, executor).thenApply(CqlDao::resultToStream);
     }
 
     public List<T> list(Statement statement) {
