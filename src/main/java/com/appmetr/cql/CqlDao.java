@@ -21,10 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
-import java.util.function.Consumer;
-import java.util.function.ObjLongConsumer;
-import java.util.function.Predicate;
-import java.util.function.Supplier;
+import java.util.function.*;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -463,8 +460,7 @@ public class CqlDao<T> {
     public Flux<Select.Where> scanQuery(int ranges, Supplier<Select> selectSupplier) {
         final long[] tokens = MurMur64Tokens.tokens(ranges);
         return Flux.range(0, ranges)
-                .zipWith(Mono.fromSupplier(selectSupplier))
-                .map(indexAndSelect -> MurMur64Tokens.whereTokenRange(this, tokens, indexAndSelect.getT1(), indexAndSelect.getT2()));
+                .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, selectSupplier.get()));
     }
 
     public Flux<T> scan(int ranges) {
@@ -472,7 +468,7 @@ public class CqlDao<T> {
     }
 
     public Flux<T> scan(int ranges, Executor executor) {
-        return scanQuery(ranges, this::select).flatMap(query -> resultFlux(query, executor));
+        return scanQuery(ranges, this::select).parallel(ranges).flatMap(query -> resultFlux(query, executor)).sequential();
     }
 
     public Flux<Row> scanRow(int ranges) {
@@ -484,7 +480,7 @@ public class CqlDao<T> {
     }
 
     public Flux<Row> scanRow(int ranges, Supplier<Select> selectSupplier, Executor executor) {
-        return scanQuery(ranges, selectSupplier).flatMap(query -> executeFlux(query, executor));
+        return scanQuery(ranges, selectSupplier).parallel(ranges).flatMap(query -> executeFlux(query, executor)).sequential();
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
