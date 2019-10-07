@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.jmmo.util.BreakException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.ParallelFlux;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -463,24 +464,24 @@ public class CqlDao<T> {
                 .map(i -> MurMur64Tokens.whereTokenRange(this, tokens, i, selectSupplier.get()));
     }
 
-    public Flux<T> scan(int ranges) {
+    public ParallelFlux<T> scan(int ranges) {
         return scan(ranges, ForkJoinPool.commonPool());
     }
 
-    public Flux<T> scan(int ranges, Executor executor) {
-        return scanQuery(ranges, this::select).parallel(ranges).flatMap(query -> resultFlux(query, executor)).sequential();
+    public ParallelFlux<T> scan(int ranges, Executor executor) {
+        return scanQuery(ranges, this::select).parallel(ranges).flatMap(query -> resultFlux(query, executor));
     }
 
-    public Flux<Row> scanRow(int ranges) {
+    public ParallelFlux<Row> scanRow(int ranges) {
         return scanRow(ranges, this::select);
     }
 
-    public Flux<Row> scanRow(int ranges, Supplier<Select> selectSupplier) {
+    public ParallelFlux<Row> scanRow(int ranges, Supplier<Select> selectSupplier) {
         return scanRow(ranges, selectSupplier, ForkJoinPool.commonPool());
     }
 
-    public Flux<Row> scanRow(int ranges, Supplier<Select> selectSupplier, Executor executor) {
-        return scanQuery(ranges, selectSupplier).parallel(ranges).flatMap(query -> executeFlux(query, executor)).sequential();
+    public ParallelFlux<Row> scanRow(int ranges, Supplier<Select> selectSupplier, Executor executor) {
+        return scanQuery(ranges, selectSupplier).parallel(ranges).flatMap(query -> executeFlux(query, executor));
     }
 
     public <R> CompletableFuture<R> completableFuture(ListenableFuture<R> listenableFuture) {
