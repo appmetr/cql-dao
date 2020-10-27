@@ -468,6 +468,10 @@ public class CqlDao<T> {
         return scan(ranges, ForkJoinPool.commonPool(), this::select);
     }
 
+    public ParallelFlux<T> scan(int ranges, Supplier<Select> select) {
+        return scan(ranges, ForkJoinPool.commonPool(), select);
+    }
+
     public ParallelFlux<T> scan(int ranges, Executor executor, Supplier<Select> select) {
         return scanQuery(ranges, select).parallel(ranges).flatMap(query -> resultFlux(query, executor));
     }
