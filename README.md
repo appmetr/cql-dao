@@ -19,7 +19,7 @@ You can use it as a maven dependency:
 <repositories>
     <repository>
         <id>appmetr-repo</id>
-        <url>http://dl.bintray.com/appmetr/maven</url>
+        <url>https://appmetr.jfrog.io/artifactory/maven/</url>
     </repository>
 </repositories>
 ```

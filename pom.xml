@@ -28,8 +28,8 @@
 
     <distributionManagement>
         <repository>
-            <id>bintray</id>
-            <url>https://api.bintray.com/maven/appmetr/maven/cql-dao</url>
+            <id>jfrog</id>
+            <url>https://appmetr.jfrog.io/artifactory/maven/</url>
         </repository>
     </distributionManagement>
 
